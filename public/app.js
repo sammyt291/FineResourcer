@@ -97,6 +97,7 @@ async function removeTask(id) { if (!confirm('Remove this scheduled task?')) ret
 async function removeHoliday(id) { if (!confirm('Delete this holiday?')) return; try { await api(`/api/holidays/${id}`, { method: 'DELETE' }); state = await api('/api/state'); render(); toast('Holiday removed'); } catch (error) { toast(error.message, true); } }
 function teamMemberFields(members = []) { return `<div class="edit-members">${state.users.map((user) => { const member = members.find((entry) => entry.userId === user.id); return `<div class="member-option"><label><input type="checkbox" name="edit-member" value="${user.id}" ${member ? 'checked' : ''}> <span>${escapeHtml(user.displayName)}</span></label><div class="schedule${member ? '' : ' hidden'}"><label>Start<input type="time" data-edit-start="${user.id}" value="${member?.start || '09:00'}"></label><label>End<input type="time" data-edit-end="${user.id}" value="${member?.end || '17:00'}"></label><label>Days<select data-edit-days="${user.id}"><option ${member?.days === 'Mon–Fri' ? 'selected' : ''}>Mon–Fri</option><option ${member?.days === 'Every day' ? 'selected' : ''}>Every day</option><option ${member?.days === 'Custom / flexible' ? 'selected' : ''}>Custom / flexible</option></select></label></div></div>`; }).join('')}</div>`; }
 const grid = $('.dashboard-grid');
+const widgetTemplates = Object.fromEntries($$('.widget', grid).map((widget) => [widget.dataset.widget, widget.cloneNode(true)]));
 function widgetLayout() { return $$('.widget', grid).map((widget) => ({ key: widget.dataset.instance || widget.dataset.widget, type: widget.dataset.widget, cols: Number(widget.dataset.cols || 2), rows: Number(widget.dataset.rows || (widget.dataset.widget === 'people' ? 4 : 2)), col: Number(widget.dataset.col || 0), row: Number(widget.dataset.row || 0), label: widget.dataset.label, timezone: widget.dataset.timezone })); }
 function saveWidgetLayout() { localStorage.setItem('fineResourcer.widgets', JSON.stringify(widgetLayout())); }
 function prepareWidget(widget) {
@@ -105,17 +106,22 @@ function prepareWidget(widget) {
   if (widget.dataset.col) widget.style.gridColumn = `${widget.dataset.col} / span ${widget.dataset.cols || 2}`;
   if (widget.dataset.row) widget.style.gridRow = `${widget.dataset.row} / span ${widget.dataset.rows || 2}`;
   if (!widget.querySelector('.resize-handle')) { const handle = document.createElement('button'); handle.type = 'button'; handle.className = 'resize-handle'; handle.setAttribute('aria-label', 'Resize widget'); widget.append(handle); }
+  if (!widget.querySelector('.widget-delete')) { const button = document.createElement('button'); button.type = 'button'; button.className = 'widget-delete'; button.setAttribute('aria-label', 'Delete widget'); button.textContent = '×'; widget.append(button); }
 }
 function restoreWidgets() {
   const saved = JSON.parse(localStorage.getItem('fineResourcer.widgets') || 'null');
   $$('.widget', grid).forEach(prepareWidget); if (!saved) return;
-  const templates = Object.fromEntries($$('.widget', grid).map((widget) => [widget.dataset.widget, widget]));
   $$('.widget', grid).forEach((widget) => widget.remove());
-  saved.forEach((entry) => { let widget = templates[entry.type]; if (!widget || widget.isConnected) { widget = templates[entry.type].cloneNode(true); widget.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id')); } Object.entries(entry).forEach(([key, value]) => { if (value !== undefined && key !== 'key') widget.dataset[key] = value; }); widget.dataset.instance = entry.key; prepareWidget(widget); grid.insertBefore(widget, $('.add-widget', grid)); });
+  saved.forEach((entry) => { const widget = widgetTemplates[entry.type]?.cloneNode(true); if (!widget) return; if (entry.key !== entry.type) widget.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id')); Object.entries(entry).forEach(([key, value]) => { if (value !== undefined && key !== 'key') widget.dataset[key] = value; }); widget.dataset.instance = entry.key; prepareWidget(widget); grid.insertBefore(widget, $('.add-widget', grid)); });
 }
 $('#widget-form').addEventListener('submit', (event) => {
-  event.preventDefault(); const type = event.submitter?.value; const source = $(`.widget[data-widget="${type}"]`, grid); if (!source) return;
+  event.preventDefault(); const type = event.submitter?.value; const source = widgetTemplates[type]; if (!source) return;
   const widget = source.cloneNode(true); widget.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id')); widget.dataset.instance = `${type}-${Date.now()}`; prepareWidget(widget); grid.insertBefore(widget, $('.add-widget', grid)); $('#widget-modal').close(); saveWidgetLayout(); widget.animate([{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }], { duration: 240 });
+});
+grid.addEventListener('click', (event) => {
+  const button = event.target.closest('.widget-delete'); if (!button) return;
+  const widget = button.closest('.widget'); if (!confirm('Delete this widget from your dashboard?')) return;
+  widget.remove(); saveWidgetLayout(); toast('Widget deleted');
 });
 grid.addEventListener('pointerdown', (event) => {
   const widget = event.target.closest('.widget'); if (!widget || event.button !== 0 || event.target.closest('.resize-handle') || event.target.closest('button,input,select,textarea,a,.person')) return;
