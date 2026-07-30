@@ -68,6 +68,22 @@ app.post('/api/holidays', loggedIn, (req, res) => {
   if (!req.body.userId || !req.body.start || !req.body.end) return res.status(400).json({ error: 'Person and dates are required.' });
   res.status(201).json(store.addHoliday({ ...req.body, createdBy: req.session.userId }));
 });
+app.put('/api/holidays/:id', loggedIn, (req, res) => {
+  const holiday = store.data.holidays.find((item) => item.id === req.params.id);
+  if (!holiday) return res.status(404).json({ error: 'Holiday not found.' });
+  const scheduler = store.user(req.session.userId).permissions.includes('Scheduler');
+  if (holiday.userId !== req.session.userId && !scheduler) return res.status(403).json({ error: 'Only schedulers may edit leave for others.' });
+  if (req.body.userId !== req.session.userId && !scheduler) return res.status(403).json({ error: 'Only schedulers may assign leave to others.' });
+  if (!req.body.userId || !req.body.start || !req.body.end) return res.status(400).json({ error: 'Person and dates are required.' });
+  res.json(store.updateHoliday(req.params.id, req.body));
+});
+app.delete('/api/holidays/:id', loggedIn, (req, res) => {
+  const holiday = store.data.holidays.find((item) => item.id === req.params.id);
+  if (!holiday) return res.status(404).json({ error: 'Holiday not found.' });
+  const scheduler = store.user(req.session.userId).permissions.includes('Scheduler');
+  if (holiday.userId !== req.session.userId && !scheduler) return res.status(403).json({ error: 'Only schedulers may remove leave for others.' });
+  store.removeHoliday(req.params.id); res.status(204).end();
+});
 app.use((error, _req, res, _next) => { console.error(error); res.status(500).json({ error: error.name === 'InvalidCredentialsError' ? 'Active Directory sign-in failed.' : 'Something went wrong.' }); });
 
 if (require.main === module) app.listen(process.env.PORT || 3000, () => console.log(`FineResourcer running at http://localhost:${process.env.PORT || 3000}`));
