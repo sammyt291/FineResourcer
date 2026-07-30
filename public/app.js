@@ -18,10 +18,10 @@ function render() {
   $('#permissions-tab').classList.toggle('hidden', !me.permissions.includes('Admin')); $('#scheduler-hint').classList.toggle('hidden', !me.permissions.includes('Scheduler'));
   const people = $('#people'); people.innerHTML = state.users.map((user) => `<button class="person" data-person="${user.id}"><span class="avatar">${initials(user.displayName)}</span><span><b>${escapeHtml(user.displayName)}</b><span class="status">Available</span></span><span>›</span></button>`).join('');
   $('#people-count').textContent = `${state.users.length} ${state.users.length === 1 ? 'person' : 'people'}`;
-  $('#resource-grid').innerHTML = state.users.map((user) => `<article class="resource-card"><div class="avatar">${initials(user.displayName)}</div><h3>${escapeHtml(user.displayName)}</h3><p class="muted">${escapeHtml(user.email || user.username)}</p><div class="working">● Available today · Standard hours</div></article>`).join('');
-  $('#team-grid').innerHTML = state.teams.length ? state.teams.map((team) => `<article class="team-card"><p class="eyebrow">${team.members.length} MEMBERS</p><h3>${escapeHtml(team.name)}</h3><p class="muted">${escapeHtml(team.description || 'No description')}</p><div class="working">${team.members.map((m) => escapeHtml(state.users.find((u) => u.id === m.userId)?.displayName || '')).join(' · ')}</div></article>`).join('') : '<div class="empty">No teams yet. Create your first team to get organised.</div>';
+  $('#resource-grid').innerHTML = state.users.map((user) => `<article class="resource-card">${me.permissions.includes('Manage resources') ? `<button class="card-action" data-edit-resource="${user.id}" aria-label="Edit ${escapeHtml(user.displayName)}">✎</button>` : ''}<div class="avatar">${initials(user.displayName)}</div><h3>${escapeHtml(user.displayName)}</h3><p class="muted">${escapeHtml(user.email || user.username)}</p><div class="working">● Available today · Standard hours</div></article>`).join('');
+  $('#team-grid').innerHTML = state.teams.length ? state.teams.map((team) => `<article class="team-card">${me.permissions.includes('Manage teams') ? `<button class="card-action" data-edit-team="${team.id}" aria-label="Edit ${escapeHtml(team.name)}">✎</button>` : ''}<p class="eyebrow">${team.members.length} MEMBERS</p><h3>${escapeHtml(team.name)}</h3><p class="muted">${escapeHtml(team.description || 'No description')}</p><div class="working">${team.members.map((m) => escapeHtml(state.users.find((u) => u.id === m.userId)?.displayName || '')).join(' · ')}</div></article>`).join('') : '<div class="empty">No teams yet. Create your first team to get organised.</div>';
   const events = [...state.tasks.map((e) => ({ ...e, kind: 'Task' })), ...state.holidays.map((e) => ({ ...e, title: e.note || 'Holiday', kind: 'Leave' }))].sort((a, b) => new Date(a.start) - new Date(b.start)).slice(0, 5);
-  $('#upcoming-list').innerHTML = events.length ? events.map((e) => `<div class="event"><div class="event-date">${formatDate(e.start).split(' ')[1]}<b>${formatDate(e.start).split(' ')[0]}</b></div><div><b>${escapeHtml(e.title)}</b><div class="muted">${e.kind} · ${escapeHtml(state.users.find((u) => u.id === e.userId)?.displayName || '')}</div></div></div>`).join('') : '<div class="empty">Your schedule is beautifully clear.</div>';
+  $('#upcoming-list').innerHTML = events.length ? events.map((e) => `<div class="event"><div class="event-date">${formatDate(e.start).split(' ')[1]}<b>${formatDate(e.start).split(' ')[0]}</b></div><div><b>${escapeHtml(e.title)}</b><div class="muted">${e.kind} · ${escapeHtml(state.users.find((u) => u.id === e.userId)?.displayName || '')}</div></div>${e.kind === 'Task' && me.permissions.includes('Scheduler') ? `<div class="event-actions"><button class="event-action" data-edit-task="${e.id}" aria-label="Edit ${escapeHtml(e.title)}">✎</button><button class="event-action delete" data-delete-task="${e.id}" aria-label="Remove ${escapeHtml(e.title)}">×</button></div>` : ''}</div>`).join('') : '<div class="empty">Your schedule is beautifully clear.</div>';
   $('#holiday-user').innerHTML = state.users.filter((u) => u.id === me.id || me.permissions.includes('Scheduler')).map((u) => `<option value="${u.id}">${escapeHtml(u.displayName)}</option>`).join('');
   renderTeamMembers(); renderPermissionUsers();
 }
@@ -37,6 +37,10 @@ document.addEventListener('click', (event) => {
   const modal = event.target.closest('[data-modal]'); if (modal) $(`#${modal.dataset.modal}-modal`).showModal();
   const person = event.target.closest('[data-person]'); if (person && state.currentUser.permissions.includes('Scheduler')) { const user = state.users.find((u) => u.id === person.dataset.person); $('#task-form [name=userId]').value = user.id; $('.selected-person').textContent = user.displayName; $('#task-modal').showModal(); }
   const userButton = event.target.closest('[data-user]'); if (userButton) { $$('.user-select').forEach((b) => b.classList.toggle('active', b === userButton)); renderPermissionEditor(userButton.dataset.user); }
+  const editTask = event.target.closest('[data-edit-task]'); if (editTask) openEditor('task', state.tasks.find((item) => item.id === editTask.dataset.editTask));
+  const editResource = event.target.closest('[data-edit-resource]'); if (editResource) openEditor('resource', state.users.find((item) => item.id === editResource.dataset.editResource));
+  const editTeam = event.target.closest('[data-edit-team]'); if (editTeam) openEditor('team', state.teams.find((item) => item.id === editTeam.dataset.editTeam));
+  const deleteTask = event.target.closest('[data-delete-task]'); if (deleteTask) removeTask(deleteTask.dataset.deleteTask);
 });
 document.addEventListener('change', async (event) => {
   if (event.target.name === 'member') event.target.closest('.member-option').querySelector('.schedule').classList.toggle('hidden', !event.target.checked);
@@ -44,4 +48,56 @@ document.addEventListener('change', async (event) => {
 });
 async function submitDialog(form, endpoint, transform) { form.addEventListener('submit', async (event) => { event.preventDefault(); try { let body = Object.fromEntries(new FormData(form)); if (transform) body = transform(body, form); await api(endpoint, { method: 'POST', body: JSON.stringify(body) }); form.closest('dialog').close(); form.reset(); state = await api('/api/state'); render(); toast('Saved successfully'); } catch (e) { toast(e.message, true); } }); }
 submitDialog($('#task-form'), '/api/tasks'); submitDialog($('#holiday-form'), '/api/holidays'); submitDialog($('#team-form'), '/api/teams', (body, form) => ({ name: body.name, description: body.description, members: $$('input[name=member]:checked', form).map((input) => ({ userId: input.value, start: form.querySelector(`[data-start="${input.value}"]`).value, end: form.querySelector(`[data-end="${input.value}"]`).value, days: form.querySelector(`[data-days="${input.value}"]`).value })) }));
+
+function localDateTime(value) { const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
+function openEditor(kind, item) {
+  if (!item) return;
+  const form = $('#edit-form'); form.reset(); form.elements.id.value = item.id; form.elements.kind.value = kind;
+  const titles = { task: ['EDIT SCHEDULE', 'Edit task'], resource: ['EDIT RESOURCE', 'Edit resource'], team: ['EDIT TEAM', 'Edit team'] };
+  [$('#edit-eyebrow').textContent, $('#edit-title').textContent] = titles[kind];
+  if (kind === 'task') $('#edit-fields').innerHTML = `<label>Team member<select name="userId">${state.users.map((u) => `<option value="${u.id}" ${u.id === item.userId ? 'selected' : ''}>${escapeHtml(u.displayName)}</option>`).join('')}</select></label><label>Task title<input name="title" required value="${escapeHtml(item.title)}"></label><div class="form-row"><label>Starts<input name="start" type="datetime-local" required value="${localDateTime(item.start)}"></label><label>Ends<input name="end" type="datetime-local" required value="${localDateTime(item.end)}"></label></div><label>Notes<textarea name="notes">${escapeHtml(item.notes || '')}</textarea></label>`;
+  if (kind === 'resource') $('#edit-fields').innerHTML = `<label>Full name<input name="displayName" required value="${escapeHtml(item.displayName)}"></label><label>Email<input name="email" type="email" value="${escapeHtml(item.email || '')}" placeholder="name@company.com"></label>`;
+  if (kind === 'team') $('#edit-fields').innerHTML = `<label>Team name<input name="name" required value="${escapeHtml(item.name)}"></label><label>Description<input name="description" value="${escapeHtml(item.description || '')}"></label>`;
+  $('#edit-modal').showModal();
+}
+$('#edit-form').addEventListener('submit', async (event) => {
+  event.preventDefault(); const body = Object.fromEntries(new FormData(event.target)); const { id, kind } = body; delete body.id; delete body.kind;
+  const endpoint = kind === 'resource' ? `/api/users/${id}` : `/api/${kind}s/${id}`;
+  try { await api(endpoint, { method: 'PUT', body: JSON.stringify(body) }); $('#edit-modal').close(); state = await api('/api/state'); render(); toast('Changes saved'); } catch (error) { toast(error.message, true); }
+});
+async function removeTask(id) { if (!confirm('Remove this scheduled task?')) return; try { await api(`/api/tasks/${id}`, { method: 'DELETE' }); state = await api('/api/state'); render(); toast('Task removed'); } catch (error) { toast(error.message, true); } }
+const grid = $('.dashboard-grid');
+function widgetLayout() { return $$('.widget', grid).map((widget) => ({ key: widget.dataset.instance || widget.dataset.widget, type: widget.dataset.widget, cols: Number(widget.dataset.cols || 2), rows: Number(widget.dataset.rows || (widget.dataset.widget === 'people' ? 4 : 2)) })); }
+function saveWidgetLayout() { localStorage.setItem('fineResourcer.widgets', JSON.stringify(widgetLayout())); }
+function prepareWidget(widget) {
+  if (!widget.dataset.instance) widget.dataset.instance = widget.dataset.widget;
+  widget.style.gridColumn = `span ${widget.dataset.cols || 2}`; widget.style.gridRow = `span ${widget.dataset.rows || (widget.dataset.widget === 'people' ? 4 : 2)}`;
+  if (!widget.querySelector('.resize-handle')) { const handle = document.createElement('button'); handle.type = 'button'; handle.className = 'resize-handle'; handle.setAttribute('aria-label', 'Resize widget'); widget.append(handle); }
+}
+function restoreWidgets() {
+  const saved = JSON.parse(localStorage.getItem('fineResourcer.widgets') || 'null');
+  $$('.widget', grid).forEach(prepareWidget); if (!saved) return;
+  const templates = Object.fromEntries($$('.widget', grid).map((widget) => [widget.dataset.widget, widget]));
+  $$('.widget', grid).forEach((widget) => widget.remove());
+  saved.forEach((entry) => { let widget = templates[entry.type]; if (!widget || widget.isConnected) { widget = templates[entry.type].cloneNode(true); widget.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id')); } widget.dataset.instance = entry.key; widget.dataset.cols = entry.cols; widget.dataset.rows = entry.rows; prepareWidget(widget); grid.insertBefore(widget, $('.add-widget', grid)); });
+}
+$('#widget-form').addEventListener('submit', (event) => {
+  event.preventDefault(); const type = event.submitter?.value; const source = $(`.widget[data-widget="${type}"]`, grid); if (!source) return;
+  const widget = source.cloneNode(true); widget.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id')); widget.dataset.instance = `${type}-${Date.now()}`; prepareWidget(widget); grid.insertBefore(widget, $('.add-widget', grid)); $('#widget-modal').close(); saveWidgetLayout(); widget.animate([{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }], { duration: 240 });
+});
+grid.addEventListener('pointerdown', (event) => {
+  const widget = event.target.closest('.widget'); if (!widget || event.button !== 0 || event.target.closest('button,input,select,textarea,a,.person')) return;
+  if (event.target.closest('.resize-handle')) return; event.preventDefault(); const rect = widget.getBoundingClientRect(); const marker = document.createElement('div'); marker.className = 'drop-marker'; marker.style.gridColumn = widget.style.gridColumn; marker.style.gridRow = widget.style.gridRow; widget.after(marker);
+  const preview = widget.cloneNode(true); preview.className = `${widget.className} drag-preview`; Object.assign(preview.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, gridColumn: '', gridRow: '' }); document.body.append(preview); widget.classList.add('dragging');
+  const offsetX = event.clientX - rect.left; const offsetY = event.clientY - rect.top;
+  const move = (e) => { preview.style.left = `${e.clientX - offsetX}px`; preview.style.top = `${e.clientY - offsetY}px`; preview.hidden = true; const below = document.elementFromPoint(e.clientX, e.clientY); preview.hidden = false; const target = below?.closest('.widget,.add-widget'); if (target && target !== widget && target !== marker) grid.insertBefore(marker, target); };
+  const up = () => { marker.replaceWith(widget); widget.classList.remove('dragging'); preview.remove(); document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); saveWidgetLayout(); };
+  document.addEventListener('pointermove', move); document.addEventListener('pointerup', up, { once: true });
+});
+grid.addEventListener('pointerdown', (event) => {
+  const handle = event.target.closest('.resize-handle'); if (!handle) return; event.preventDefault(); event.stopPropagation(); const widget = handle.closest('.widget'); const startX = event.clientX; const startY = event.clientY; const startCols = Number(widget.dataset.cols || 2); const startRows = Number(widget.dataset.rows || (widget.dataset.widget === 'people' ? 4 : 2)); widget.classList.add('resizing');
+  const move = (e) => { const cellWidth = Math.max(grid.clientWidth / 4, 100); const cols = Math.max(1, Math.min(4, startCols + Math.round((e.clientX - startX) / cellWidth))); const rows = Math.max(1, Math.min(6, startRows + Math.round((e.clientY - startY) / 165))); widget.dataset.cols = cols; widget.dataset.rows = rows; widget.style.gridColumn = `span ${cols}`; widget.style.gridRow = `span ${rows}`; };
+  const up = () => { widget.classList.remove('resizing'); document.removeEventListener('pointermove', move); saveWidgetLayout(); }; document.addEventListener('pointermove', move); document.addEventListener('pointerup', up, { once: true });
+});
+restoreWidgets();
 function tick() { const now = new Date(); $('#clock').textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); $('#clock-date').textContent = now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }); const h = now.getHours(); $('#daypart').textContent = h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening'; } tick(); setInterval(tick, 1000); boot();

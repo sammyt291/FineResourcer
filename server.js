@@ -44,14 +44,24 @@ app.get('/api/state', loggedIn, (req, res) => {
     holidays: store.data.holidays, resources: store.data.resources, permissions: PERMISSIONS, currentUser: store.publicUser(user) });
 });
 app.put('/api/users/:id/permissions', loggedIn, permitted('Admin'), (req, res) => res.json(store.updatePermissions(req.params.id, req.body.permissions || [])));
+app.put('/api/users/:id', loggedIn, permitted('Manage resources'), (req, res) => res.json(store.updateUser(req.params.id, req.body)));
 app.post('/api/teams', loggedIn, permitted('Manage teams'), (req, res) => {
   if (!req.body.name?.trim()) return res.status(400).json({ error: 'Team name is required.' });
   res.status(201).json(store.addTeam({ ...req.body, name: req.body.name.trim() }));
+});
+app.put('/api/teams/:id', loggedIn, permitted('Manage teams'), (req, res) => {
+  if (!req.body.name?.trim()) return res.status(400).json({ error: 'Team name is required.' });
+  res.json(store.updateTeam(req.params.id, req.body));
 });
 app.post('/api/tasks', loggedIn, permitted('Scheduler'), (req, res) => {
   if (!req.body.userId || !req.body.title || !req.body.start || !req.body.end) return res.status(400).json({ error: 'Person, title, start and end are required.' });
   res.status(201).json(store.addTask({ ...req.body, createdBy: req.session.userId }));
 });
+app.put('/api/tasks/:id', loggedIn, permitted('Scheduler'), (req, res) => {
+  if (!req.body.userId || !req.body.title || !req.body.start || !req.body.end) return res.status(400).json({ error: 'Person, title, start and end are required.' });
+  res.json(store.updateTask(req.params.id, req.body));
+});
+app.delete('/api/tasks/:id', loggedIn, permitted('Scheduler'), (req, res) => { store.removeTask(req.params.id); res.status(204).end(); });
 app.post('/api/holidays', loggedIn, (req, res) => {
   const self = req.body.userId === req.session.userId;
   if (!self && !store.user(req.session.userId).permissions.includes('Scheduler')) return res.status(403).json({ error: 'Only schedulers may add leave for others.' });
